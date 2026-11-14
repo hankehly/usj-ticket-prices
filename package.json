@@ -1,0 +1,8 @@
+{
+  "name": "usj-ticket-prices",
+  "private": true,
+  "description": "Pins the AWS CDK command used to deploy this project",
+  "devDependencies": {
+    "aws-cdk": "2.1148.1"
+  }
+}
