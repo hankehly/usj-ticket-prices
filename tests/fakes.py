@@ -52,11 +52,12 @@ class InMemoryArchive:
     def read(self, snapshot_date: date, item: str) -> bytes:
         return self.objects[(snapshot_date, item)]
 
-    def write(self, snapshot_date: date, item: str, body: bytes, fetched_at: datetime) -> None:
+    def write(self, snapshot_date: date, item: str, body: bytes, fetched_at: datetime) -> bool:
         if (snapshot_date, item) in self.objects:
             raise AssertionError(f"attempted to replace stored response {item}")
         self.objects[(snapshot_date, item)] = body
         self.fetched_at[(snapshot_date, item)] = fetched_at
+        return True
 
     def write_manifest(self, snapshot_date: date, manifest: dict) -> None:
         self.manifests[snapshot_date] = manifest

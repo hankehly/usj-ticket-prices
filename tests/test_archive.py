@@ -2,6 +2,8 @@ import io
 from datetime import UTC, date, datetime
 
 import boto3
+import pytest
+from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
 
@@ -38,11 +40,31 @@ def test_write_refuses_to_replace_a_stored_response():
         },
     )
 
-    archive.write(
+    stored = archive.write(
         DAY, "price-calendar/139.json", b'{"status":1}', datetime(2026, 11, 14, 19, 0, tzinfo=UTC)
     )
 
+    assert stored is True
     stubber.assert_no_pending_responses()
+
+
+def test_write_reports_a_response_an_overlapping_run_stored_first():
+    archive, stubber = stubbed_archive()
+    stubber.add_client_error(
+        "put_object", service_error_code="PreconditionFailed", http_status_code=412
+    )
+
+    stored = archive.write(DAY, "sku-list/139.json", b"{}", datetime(2026, 11, 14, tzinfo=UTC))
+
+    assert stored is False
+
+
+def test_write_does_not_hide_other_storage_errors():
+    archive, stubber = stubbed_archive()
+    stubber.add_client_error("put_object", service_error_code="AccessDenied", http_status_code=403)
+
+    with pytest.raises(ClientError, match="AccessDenied"):
+        archive.write(DAY, "sku-list/139.json", b"{}", datetime(2026, 11, 14, tzinfo=UTC))
 
 
 def test_stored_items_lists_the_days_responses_but_not_the_manifest():
