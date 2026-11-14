@@ -53,6 +53,10 @@ class SnapshotStack(Stack):
             # About 70 requests paced 3 seconds apart take roughly 5 minutes.
             timeout=Duration.minutes(15),
             memory_size=256,
+            # One run at a time. Overlapping runs would each pace their own
+            # requests, hitting the store faster than agreed, and could
+            # overwrite each other's manifest. A second run waits its turn.
+            reserved_concurrent_executions=1,
             environment={
                 "SNAPSHOT_BUCKET": bucket.bucket_name,
                 "ALERT_TOPIC_ARN": alerts.topic_arn,

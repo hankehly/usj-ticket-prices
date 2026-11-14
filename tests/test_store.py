@@ -1,3 +1,4 @@
+import http.client
 import urllib.error
 
 import pytest
@@ -74,3 +75,13 @@ def test_an_http_error_is_a_store_error():
 
     with pytest.raises(StoreError, match="403"):
         store.sku_list(139)
+
+
+def test_a_response_cut_off_mid_transfer_is_a_store_error():
+    def cut_off(request):
+        raise http.client.IncompleteRead(b'{"status":1,"da')
+
+    store = HttpStore(send=cut_off, sleep=lambda seconds: None)
+
+    with pytest.raises(StoreError, match="IncompleteRead"):
+        store.price_calendar(139)
