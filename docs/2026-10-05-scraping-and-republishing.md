@@ -107,13 +107,3 @@ To be certain, email JTRweb and ask.
 | Japanese ticket lineup | https://www.usj.co.jp/web/ja/jp/tickets/lineup | Starting prices only. 1 Day Studio Pass: adult ¥8,400~, child ¥5,500~, senior ¥7,600~ (matches usjticketing.com). |
 | Japanese web ticket store | https://store.usj.co.jp/ja/jp/c/ticket | Day-by-day prices. Behind a waiting-room queue that screens for bots, so harder to scrape. Its terms were **not checked**. |
 | English web ticket store | https://www.usjticketing.com/ | Day-by-day prices (the site being researched). |
-
-## Open questions / next steps
-
-- [ ] The price calendar shows one figure per day. Confirm which ticket type it
-      is, and how to get child and senior prices for each day (probably
-      `/product/sku-price`).
-- [ ] Compare per-day prices on usjticketing.com with store.usj.co.jp. This
-      couldn't be done because of the queue.
-- [ ] Read store.usj.co.jp's terms before scraping it.
-- [ ] Optional: email JTRweb for written permission to republish.
