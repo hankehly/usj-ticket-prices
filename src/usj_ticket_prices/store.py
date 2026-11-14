@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import time
 import urllib.error
 import urllib.request
@@ -63,3 +64,7 @@ class HttpStore:
             return self._send(request)
         except urllib.error.HTTPError as error:
             raise StoreError(f"{method} {path} returned HTTP {error.code}") from error
+        except http.client.HTTPException as error:
+            # For example a response cut off mid-transfer. These are not
+            # OSErrors, so without this they would crash the whole run.
+            raise StoreError(f"{method} {path} failed: {error!r}") from error

@@ -37,7 +37,7 @@ Everything deploys to the Tokyo region (`ap-northeast-1`) of whichever AWS accou
 npm install
 
 # Once per AWS account
-npx cdk bootstrap
+npx cdk bootstrap -c alert_email=you@example.com
 
 # Each deploy. The address receives failure alerts and is never stored in this repo.
 npx cdk deploy -c alert_email=you@example.com

@@ -85,3 +85,9 @@ def test_a_crashed_run_raises_an_alarm_and_is_not_retried_automatically():
     template.has_resource_properties(
         "AWS::Lambda::EventInvokeConfig", {"MaximumRetryAttempts": 0}
     )
+
+
+def test_only_one_run_executes_at_a_time():
+    synthesized().has_resource_properties(
+        "AWS::Lambda::Function", {"ReservedConcurrentExecutions": 1}
+    )
