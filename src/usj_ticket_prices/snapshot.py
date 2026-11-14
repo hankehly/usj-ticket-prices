@@ -42,8 +42,11 @@ class Archive(Protocol):
 
     def write(
         self, snapshot_date: date, item: str, body: bytes, fetched_at: datetime
-    ) -> None:
-        """Store a response. Must never replace one that is already stored."""
+    ) -> bool:
+        """Store a response, never replacing one that is already stored.
+
+        Returns False when another run had already stored it.
+        """
 
     def write_manifest(self, snapshot_date: date, manifest: dict) -> None: ...
 
@@ -128,9 +131,9 @@ def take_snapshot(
             result.missing.append(item)
             return False
         failures_in_a_row = 0
-        archive.write(snapshot_date, item, body, now())
+        if archive.write(snapshot_date, item, body, now()):
+            result.fetched.append(item)
         stored.add(item)
-        result.fetched.append(item)
         return True
 
     # The product lists stored by the day's first run fix which products the

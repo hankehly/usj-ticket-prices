@@ -96,6 +96,31 @@ def test_a_later_run_fetches_only_what_is_missing_and_replaces_nothing():
         assert archive.objects[key] == body
 
 
+class OverlappedArchive(InMemoryArchive):
+    """An archive in which another run stores one response just before this run does."""
+
+    def __init__(self, contested_item: str) -> None:
+        super().__init__()
+        self.contested_item = contested_item
+
+    def write(self, snapshot_date, item, body, fetched_at) -> bool:
+        if item == self.contested_item:
+            self.objects[(snapshot_date, item)] = body  # the other run's write
+            return False
+        return super().write(snapshot_date, item, body, fetched_at)
+
+
+def test_a_response_stored_first_by_an_overlapping_run_does_not_stop_this_run():
+    store, archive = FakeStore(), OverlappedArchive("product-list/studio-pass.json")
+
+    result = take_snapshot(DAY, store, archive)
+
+    assert result.complete
+    assert "product-list/studio-pass.json" not in result.fetched
+    assert "price-calendar/139.json" in archive.stored_items(DAY)
+    assert archive.manifests[DAY]["complete"] is True
+
+
 def test_a_failed_product_list_leaves_the_other_category_captured():
     store, archive = FakeStore(), InMemoryArchive()
     store.failing = {"product-list/express-pass"}

@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from datetime import date, datetime
 
+from botocore.exceptions import ClientError
+
 MANIFEST = "manifest.json"
 
 
@@ -36,17 +38,25 @@ class S3Archive:
 
     def write(
         self, snapshot_date: date, item: str, body: bytes, fetched_at: datetime
-    ) -> None:
+    ) -> bool:
         # IfNoneMatch makes S3 itself refuse to replace a stored response, so
         # write-once holds even if two runs overlap.
-        self._s3.put_object(
-            Bucket=self._bucket,
-            Key=_prefix(snapshot_date) + item,
-            Body=body,
-            ContentType="application/json",
-            Metadata={"fetched-at": fetched_at.isoformat()},
-            IfNoneMatch="*",
-        )
+        try:
+            self._s3.put_object(
+                Bucket=self._bucket,
+                Key=_prefix(snapshot_date) + item,
+                Body=body,
+                ContentType="application/json",
+                Metadata={"fetched-at": fetched_at.isoformat()},
+                IfNoneMatch="*",
+            )
+        except ClientError as error:
+            # An overlapping run stored this response first. That is the
+            # outcome write-once asks for, not a failure.
+            if error.response["Error"]["Code"] == "PreconditionFailed":
+                return False
+            raise
+        return True
 
     def write_manifest(self, snapshot_date: date, manifest: dict) -> None:
         # The manifest describes the Snapshot's current state, so unlike the
