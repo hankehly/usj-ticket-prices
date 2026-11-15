@@ -1,3 +1,12 @@
+## Communication
+- Speak in simple, plain English whenever possible. Lead with non-technical framing (motivation, what changed, what success looks like) and keep math, code paths, and implementation detail in lower sections or appendices.
+- Decision rules belong in tables with concrete numerical thresholds, not prose.
+
+## Git conventions
+- Unless told otherwise, make the code changes for a PR in a separate git worktree under `.claude/worktrees/` (gitignored), not in the main checkout, which stays on `main` for other work.
+- Branches follow [Conventional Branch](https://conventionalbranch.org/)
+- Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)
+
 ## Agent skills
 
 ### Issue tracker
