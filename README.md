@@ -68,7 +68,7 @@ The file covers one price series: the 1 Day Studio Pass for an Adult, in yen.
 | Field | What it holds |
 | --- | --- |
 | `latest_snapshot` | The latest Snapshot's `date` (Japan time) and `taken_at`, the UTC time its price calendar was fetched |
-| `upcoming_prices` | One entry per day from the latest Snapshot's date to the last Visit Date in its calendar: `visit_date`, `state`, `price` |
+| `upcoming_prices` | One entry per day from the latest Snapshot's date to the latest Visit Date any Snapshot has listed: `visit_date`, `state`, `price` |
 | `final_prices` | The Final Price of every Visit Date ever observed, with its `weekday` (1 is Monday, 7 is Sunday). For a Visit Date still in the calendar this is its latest price |
 | `change_by_lead_time` | For each `lead_time` of one day or more, longest first: `average_change`, the average difference from the Opening Price, and `visit_dates`, how many Visit Dates the average covers |
 | `histories` | For every Visit Date ever observed, its `state`, `price` and the store's `sku_id` behind that price, in each Snapshot whose calendar reached it |
@@ -81,7 +81,7 @@ A `state` is one of:
 | --- | --- |
 | `available` | Listed and purchasable |
 | `unavailable` | In the calendar but marked not purchasable (Unavailable), or in the calendar with no price for the Guest Type, in which case the price is `null`. The store's price is passed on but is left out of the Final Price, the Opening Price and the change by Lead Time |
-| `not_listed` | Missing from the calendar although later dates are listed (Not Listed). The price is `null` |
+| `not_listed` | Missing from the calendar, although this or an earlier Snapshot listed a date at least as late (Not Listed). The price is `null` |
 | `sku_conflict` | Two SKUs were priced for the Guest Type, or the one SKU priced is a hidden SKU whose label and type code name different Guest Types. No price is picked, so the price is `null` |
 
 A Guest Type is the label the store gives an SKU ("Adult"), not the SKU's id.

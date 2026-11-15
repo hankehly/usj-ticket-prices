@@ -132,6 +132,10 @@ class SnapshotStack(Stack):
             # Snapshot, so a few seconds per year of Snapshots.
             timeout=Duration.minutes(5),
             memory_size=512,
+            # One build at a time. Each build replaces the whole file, so of
+            # two overlapping builds the one that read less history could
+            # finish last and leave the older file in place.
+            reserved_concurrent_executions=1,
             environment={
                 "SNAPSHOT_BUCKET": bucket.bucket_name,
                 "SITE_BUCKET": site.bucket_name,

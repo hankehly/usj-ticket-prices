@@ -78,14 +78,15 @@ _Series = dict[date, list[_Sighting]]
 
 def build_data_file(history: SnapshotHistory) -> bytes:
     readings = _readings(history)
-    series, sku_conflicts = _series(readings)
+    spans = _spans(readings)
+    series, sku_conflicts = _series(readings, spans)
     latest = readings[-1] if readings else None
 
     data = {
         "product": {"id": PRODUCT_ID, "title": latest.product_title if latest else None},
         "guest_type": GUEST_TYPE,
         "latest_snapshot": _latest_snapshot(history, latest),
-        "upcoming_prices": _upcoming_prices(series, latest),
+        "upcoming_prices": _upcoming_prices(series, latest, spans),
         "final_prices": _final_prices(series),
         "change_by_lead_time": _change_by_lead_time(series, readings),
         "histories": {
@@ -120,7 +121,9 @@ def _readings(history: SnapshotHistory) -> list[CalendarReading]:
     ]
 
 
-def _series(readings: list[CalendarReading]) -> tuple[_Series, list[dict]]:
+def _series(
+    readings: list[CalendarReading], spans: dict[date, list[date]]
+) -> tuple[_Series, list[dict]]:
     """The price series, and every SKU conflict met while reading it."""
     series: _Series = defaultdict(list)
     sku_conflicts = []
@@ -131,7 +134,7 @@ def _series(readings: list[CalendarReading]) -> tuple[_Series, list[dict]]:
                 candidates[observation.visit_date].append(observation)
 
         listed = set(reading.visit_dates)
-        for visit_date in _span(reading):
+        for visit_date in spans[reading.snapshot_date]:
             observations = sorted(candidates[visit_date], key=lambda each: each.sku_id)
             if visit_date not in listed:
                 sighting = _Sighting(reading.snapshot_date, State.NOT_LISTED)
@@ -171,14 +174,25 @@ def _series(readings: list[CalendarReading]) -> tuple[_Series, list[dict]]:
     return ever_observed, sku_conflicts
 
 
-def _span(reading: CalendarReading) -> list[date]:
-    """Every date the calendar reaches, from the Snapshot's date to the last
-    Visit Date listed. The ones it skips are Not Listed."""
-    if not reading.visit_dates:
-        return []
-    first = min(reading.snapshot_date, reading.visit_dates[0])
-    days = (reading.visit_dates[-1] - first).days
-    return [first + timedelta(days=offset) for offset in range(days + 1)]
+def _spans(readings: list[CalendarReading]) -> dict[date, list[date]]:
+    """For each Snapshot date, every date its calendar is held to account
+    for: from the Snapshot's date to the latest Visit Date listed so far, in
+    this Snapshot or any earlier one. The ones it leaves out are Not Listed.
+
+    Reaching back to earlier Snapshots matters when a calendar shrinks or
+    comes back empty: the Visit Dates it dropped are Not Listed, not unknown.
+    """
+    spans = {}
+    latest_listed = None
+    for reading in readings:
+        first = reading.snapshot_date
+        if reading.visit_dates:
+            first = min(first, reading.visit_dates[0])
+            last = reading.visit_dates[-1]
+            latest_listed = last if latest_listed is None else max(latest_listed, last)
+        days = (latest_listed - first).days + 1 if latest_listed else 0
+        spans[reading.snapshot_date] = [first + timedelta(days=offset) for offset in range(days)]
+    return spans
 
 
 def _latest_snapshot(history: SnapshotHistory, latest: CalendarReading | None) -> dict | None:
@@ -191,11 +205,13 @@ def _latest_snapshot(history: SnapshotHistory, latest: CalendarReading | None) -
     }
 
 
-def _upcoming_prices(series: _Series, latest: CalendarReading | None) -> list[dict]:
+def _upcoming_prices(
+    series: _Series, latest: CalendarReading | None, spans: dict[date, list[date]]
+) -> list[dict]:
     if latest is None:
         return []
     upcoming = []
-    for visit_date in _span(latest):
+    for visit_date in spans[latest.snapshot_date]:
         # A date missing from the series has never been listed in any Snapshot.
         sighting = _Sighting(latest.snapshot_date, State.NOT_LISTED)
         if visit_date in series and series[visit_date][-1].snapshot_date == latest.snapshot_date:

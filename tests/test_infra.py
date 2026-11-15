@@ -193,3 +193,10 @@ def test_a_failed_build_raises_an_alarm():
             "AlarmActions": Match.any_value(),
         },
     )
+
+
+def test_only_one_build_executes_at_a_time():
+    synthesized().has_resource_properties(
+        "AWS::Lambda::Function",
+        {"Handler": "usj_ticket_prices.handler.build_handler", "ReservedConcurrentExecutions": 1},
+    )
