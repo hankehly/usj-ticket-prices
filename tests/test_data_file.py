@@ -456,7 +456,7 @@ def test_before_any_snapshot_the_file_is_valid_and_empty():
     }
 
 
-def test_an_empty_price_calendar_is_still_the_latest_snapshot():
+def test_an_empty_price_calendar_makes_every_date_listed_before_not_listed():
     for empty in (calendar(), b'{"status":1,"msg":"","data":[]}'):
         archive = three_days()
         store_snapshot(archive, "2026-11-18", empty)
@@ -464,8 +464,39 @@ def test_an_empty_price_calendar_is_still_the_latest_snapshot():
         data = built(archive)
 
         assert data["latest_snapshot"]["date"] == "2026-11-18"
-        assert data["upcoming_prices"] == []
-        assert data["histories"] == built(three_days())["histories"]
+        # Earlier Snapshots listed dates up to 2026-11-20.
+        assert data["upcoming_prices"] == [
+            {"visit_date": "2026-11-18", "state": "not_listed", "price": None},
+            {"visit_date": "2026-11-19", "state": "not_listed", "price": None},
+            {"visit_date": "2026-11-20", "state": "not_listed", "price": None},
+        ]
+        assert [
+            (entry["snapshot_date"], entry["state"]) for entry in data["histories"]["2026-11-20"]
+        ] == [("2026-11-17", "available"), ("2026-11-18", "not_listed")]
+        assert "2026-11-19" not in data["histories"]
+
+
+def test_a_visit_date_dropped_from_a_shorter_calendar_is_not_listed_until_it_returns():
+    archive = InMemoryArchive()
+    store_snapshot(
+        archive,
+        "2026-11-15",
+        calendar(day("2026-11-15", {ADULT: 11900}), day("2026-11-20", {ADULT: 9000})),
+    )
+    store_snapshot(archive, "2026-11-16", calendar(day("2026-11-16", {ADULT: 10400})))
+    store_snapshot(
+        archive,
+        "2026-11-17",
+        calendar(day("2026-11-17", {ADULT: 9900}), day("2026-11-20", {ADULT: 9500})),
+    )
+
+    history = built(archive)["histories"]["2026-11-20"]
+
+    assert [(entry["snapshot_date"], entry["state"], entry["price"]) for entry in history] == [
+        ("2026-11-15", "available", 9000),
+        ("2026-11-16", "not_listed", None),
+        ("2026-11-17", "available", 9500),
+    ]
 
 
 def test_an_sku_missing_from_the_sku_list_has_no_guest_type_and_is_left_out():
