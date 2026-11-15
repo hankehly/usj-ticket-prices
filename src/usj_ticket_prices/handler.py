@@ -30,8 +30,9 @@ def run(
     `on_new_data` is called when the run stored anything, so that whatever is
     derived from the Snapshots can be brought up to date.
     """
-    result = take_snapshot(snapshot_date(now()), store, archive, now=now)
+    result = SnapshotResult(snapshot_date(now()))
     try:
+        take_snapshot(result.snapshot_date, store, archive, now=now, result=result)
         if event.get("final") and not result.complete:
             alert(
                 f"USJ ticket prices: Snapshot {result.snapshot_date} is incomplete",
@@ -40,8 +41,9 @@ def run(
                 + "\n".join(result.missing),
             )
     finally:
-        # Even if the alert could not be sent: a later run that finds nothing
-        # missing would not get another chance to pass the new data on.
+        # Even if the run crashed part-way or the alert could not be sent: a
+        # later run that finds nothing missing would not get another chance
+        # to pass on what this one stored.
         if result.fetched:
             on_new_data()
     return result
