@@ -246,3 +246,36 @@ def test_a_build_still_starts_when_the_alert_cannot_be_sent():
         run({"final": True}, store, archive, broken_alert, on_new_data=builds, now=lambda: NOW)
 
     assert builds.started == 1
+
+
+class FailingManifestArchive(InMemoryArchive):
+    """An archive that stores responses but cannot write the manifest."""
+
+    def write_manifest(self, snapshot_date, manifest) -> None:
+        raise ConnectionError("storage unreachable")
+
+
+def test_a_run_that_crashes_after_storing_data_still_starts_a_build():
+    store, archive, builds = FakeStore(), FailingManifestArchive(), Builds()
+
+    with pytest.raises(ConnectionError):
+        run({"final": False}, store, archive, Alerts(), on_new_data=builds, now=lambda: NOW)
+
+    assert "price-calendar/139.json" in archive.stored_items(date(2026, 11, 15))
+    assert builds.started == 1
+
+
+class ReadOnlyArchive(InMemoryArchive):
+    """An archive that refuses every write."""
+
+    def write(self, snapshot_date, item, body, fetched_at) -> bool:
+        raise ConnectionError("storage unreachable")
+
+
+def test_a_run_that_crashes_before_storing_anything_starts_no_build():
+    store, archive, builds = FakeStore(), ReadOnlyArchive(), Builds()
+
+    with pytest.raises(ConnectionError):
+        run({"final": False}, store, archive, Alerts(), on_new_data=builds, now=lambda: NOW)
+
+    assert builds.started == 0

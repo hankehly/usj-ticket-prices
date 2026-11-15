@@ -106,14 +106,19 @@ def take_snapshot(
     *,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     failure_limit: int = 5,
+    result: SnapshotResult | None = None,
 ) -> SnapshotResult:
     """Fetch and store whatever the Snapshot for `snapshot_date` still lacks.
 
     After `failure_limit` failures in a row the run stops asking the store, so
     an outage or a block is not met with dozens of further requests.
+
+    A caller that passes its own `result` can still see what was stored if
+    the run fails part-way and never returns.
     """
+    if result is None:
+        result = SnapshotResult(snapshot_date)
     stored = archive.stored_items(snapshot_date)
-    result = SnapshotResult(snapshot_date)
     failures_in_a_row = 0
 
     def ensure(item: str, fetch: Callable[[], bytes]) -> bool:
