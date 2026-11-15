@@ -42,7 +42,7 @@ def test_responses_are_stored_exactly_as_received_with_their_fetch_time():
     assert archive.read(DAY, "product-list/studio-pass.json") == fixture(
         "product-list-studio-pass.json"
     )
-    assert archive.fetched_at[(DAY, "price-calendar/139.json")] == fetched_at
+    assert archive.fetched_at(DAY, "price-calendar/139.json") == fetched_at
 
 
 def test_second_run_on_the_same_date_asks_the_store_for_nothing():
@@ -174,7 +174,7 @@ def test_the_final_run_alerts_once_when_the_snapshot_is_incomplete():
     store, archive, alerts = FakeStore(), InMemoryArchive(), Alerts()
     store.failing = {"price-calendar/139"}
 
-    run({"final": True}, store, archive, alerts, now=lambda: NOW)
+    run({"final": True}, store, archive, alerts, on_new_data=lambda: None, now=lambda: NOW)
 
     assert len(alerts.sent) == 1
     subject, message = alerts.sent[0]
@@ -186,7 +186,7 @@ def test_earlier_runs_do_not_alert_because_a_later_run_may_fill_the_gap():
     store, archive, alerts = FakeStore(), InMemoryArchive(), Alerts()
     store.failing = {"price-calendar/139"}
 
-    run({"final": False}, store, archive, alerts, now=lambda: NOW)
+    run({"final": False}, store, archive, alerts, on_new_data=lambda: None, now=lambda: NOW)
 
     assert alerts.sent == []
 
@@ -194,7 +194,55 @@ def test_earlier_runs_do_not_alert_because_a_later_run_may_fill_the_gap():
 def test_the_final_run_stays_quiet_when_the_snapshot_is_complete():
     store, archive, alerts = FakeStore(), InMemoryArchive(), Alerts()
 
-    result = run({"final": True}, store, archive, alerts, now=lambda: NOW)
+    result = run({"final": True}, store, archive, alerts, on_new_data=lambda: None, now=lambda: NOW)
 
     assert alerts.sent == []
     assert result.snapshot_date == date(2026, 11, 15)
+
+
+class Builds:
+    def __init__(self) -> None:
+        self.started = 0
+
+    def __call__(self) -> None:
+        self.started += 1
+
+
+def test_a_run_that_added_data_starts_a_build_of_the_data_file():
+    store, archive, builds = FakeStore(), InMemoryArchive(), Builds()
+
+    run({"final": False}, store, archive, Alerts(), on_new_data=builds, now=lambda: NOW)
+
+    assert builds.started == 1
+
+
+def test_a_run_that_added_nothing_starts_no_build():
+    store, archive, builds = FakeStore(), InMemoryArchive(), Builds()
+    run({"final": False}, store, archive, Alerts(), on_new_data=lambda: None, now=lambda: NOW)
+
+    run({"final": False}, store, archive, Alerts(), on_new_data=builds, now=lambda: NOW)
+
+    assert builds.started == 0
+
+
+def test_an_incomplete_final_run_that_added_data_both_alerts_and_starts_a_build():
+    store, archive, alerts, builds = FakeStore(), InMemoryArchive(), Alerts(), Builds()
+    store.failing = {"price-calendar/139"}
+
+    run({"final": True}, store, archive, alerts, on_new_data=builds, now=lambda: NOW)
+
+    assert len(alerts.sent) == 1
+    assert builds.started == 1
+
+
+def test_a_build_still_starts_when_the_alert_cannot_be_sent():
+    store, archive, builds = FakeStore(), InMemoryArchive(), Builds()
+    store.failing = {"price-calendar/139"}
+
+    def broken_alert(subject: str, message: str) -> None:
+        raise ConnectionError("alert service unreachable")
+
+    with pytest.raises(ConnectionError):
+        run({"final": True}, store, archive, broken_alert, on_new_data=builds, now=lambda: NOW)
+
+    assert builds.started == 1

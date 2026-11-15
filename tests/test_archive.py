@@ -1,12 +1,11 @@
 import io
 from datetime import UTC, date, datetime
 
-import boto3
 import pytest
 from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
-from botocore.stub import Stubber
 
+from tests.fakes import stubbed_s3
 from usj_ticket_prices.archive import S3Archive
 
 DAY = date(2026, 11, 15)
@@ -14,14 +13,7 @@ BUCKET = "snapshots-bucket"
 
 
 def stubbed_archive():
-    s3 = boto3.client(
-        "s3",
-        region_name="ap-northeast-1",
-        aws_access_key_id="testing",
-        aws_secret_access_key="testing",
-    )
-    stubber = Stubber(s3)
-    stubber.activate()
+    s3, stubber = stubbed_s3()
     return S3Archive(s3, BUCKET), stubber
 
 
@@ -106,3 +98,44 @@ def test_read_returns_the_stored_bytes():
     )
 
     assert archive.read(DAY, "sku-list/139.json") == b'{"status":1}'
+
+
+def test_snapshot_dates_lists_every_date_with_stored_responses():
+    archive, stubber = stubbed_archive()
+    stubber.add_response(
+        "list_objects_v2",
+        {
+            "IsTruncated": False,
+            "CommonPrefixes": [
+                {"Prefix": "snapshots/2026-11-16/"},
+                {"Prefix": "snapshots/2026-11-15/"},
+            ],
+        },
+        {"Bucket": BUCKET, "Prefix": "snapshots/", "Delimiter": "/"},
+    )
+
+    assert archive.snapshot_dates() == [date(2026, 11, 15), date(2026, 11, 16)]
+
+
+def test_snapshot_dates_is_empty_before_the_first_snapshot():
+    archive, stubber = stubbed_archive()
+    stubber.add_response(
+        "list_objects_v2",
+        {"IsTruncated": False, "KeyCount": 0},
+        {"Bucket": BUCKET, "Prefix": "snapshots/", "Delimiter": "/"},
+    )
+
+    assert archive.snapshot_dates() == []
+
+
+def test_fetched_at_returns_the_time_stored_with_the_response():
+    archive, stubber = stubbed_archive()
+    stubber.add_response(
+        "head_object",
+        {"Metadata": {"fetched-at": "2026-11-14T19:00:07+00:00"}},
+        {"Bucket": BUCKET, "Key": "snapshots/2026-11-15/price-calendar/139.json"},
+    )
+
+    assert archive.fetched_at(DAY, "price-calendar/139.json") == datetime(
+        2026, 11, 14, 19, 0, 7, tzinfo=UTC
+    )
