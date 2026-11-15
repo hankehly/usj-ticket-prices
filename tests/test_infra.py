@@ -91,3 +91,105 @@ def test_only_one_run_executes_at_a_time():
     synthesized().has_resource_properties(
         "AWS::Lambda::Function", {"ReservedConcurrentExecutions": 1}
     )
+
+
+def policy_statements(template: Template, function_id: str) -> list[dict]:
+    """The IAM statements granted to the role of the function with this construct id."""
+    return [
+        statement
+        for policy in template.find_resources("AWS::IAM::Policy").values()
+        if any(
+            role["Ref"].startswith(f"{function_id}ServiceRole")
+            for role in policy["Properties"]["Roles"]
+        )
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+    ]
+
+
+def actions(statement: dict) -> list[str]:
+    action = statement["Action"]
+    return action if isinstance(action, list) else [action]
+
+
+def test_neither_bucket_can_be_made_public():
+    template = synthesized()
+
+    template.resource_count_is("AWS::S3::Bucket", 2)
+    template.all_resources_properties(
+        "AWS::S3::Bucket",
+        {
+            "PublicAccessBlockConfiguration": {
+                "BlockPublicAcls": True,
+                "BlockPublicPolicy": True,
+                "IgnorePublicAcls": True,
+                "RestrictPublicBuckets": True,
+            }
+        },
+    )
+
+
+def test_the_build_reads_the_snapshots_and_writes_to_the_site_bucket():
+    synthesized().has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Handler": "usj_ticket_prices.handler.build_handler",
+            "Environment": {
+                "Variables": {
+                    "SNAPSHOT_BUCKET": {"Ref": Match.string_like_regexp("^Snapshots")},
+                    "SITE_BUCKET": {"Ref": Match.string_like_regexp("^Site")},
+                }
+            },
+        },
+    )
+
+
+def test_the_build_can_write_nothing_but_the_data_file():
+    statements = policy_statements(synthesized(), "BuildDataFile")
+
+    writes = [
+        statement
+        for statement in statements
+        if any(action.startswith("s3:Put") for action in actions(statement))
+    ]
+    assert len(writes) == 1
+    (bucket_arn, key) = writes[0]["Resource"]["Fn::Join"][1]
+    assert bucket_arn["Fn::GetAtt"][0].startswith("Site")
+    assert key == "/data.json"
+
+
+def test_a_snapshot_run_is_able_to_start_the_build():
+    template = synthesized()
+
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Handler": "usj_ticket_prices.handler.handler",
+            "Environment": {
+                "Variables": Match.object_like(
+                    {"BUILD_FUNCTION_NAME": {"Ref": Match.string_like_regexp("^BuildDataFile")}}
+                )
+            },
+        },
+    )
+    granted = [
+        action
+        for statement in policy_statements(template, "TakeSnapshot")
+        for action in actions(statement)
+    ]
+    assert "lambda:InvokeFunction" in granted
+
+
+def test_a_failed_build_raises_an_alarm():
+    synthesized().has_resource_properties(
+        "AWS::CloudWatch::Alarm",
+        {
+            "MetricName": "Errors",
+            "Dimensions": [
+                {
+                    "Name": "FunctionName",
+                    "Value": {"Ref": Match.string_like_regexp("^BuildDataFile")},
+                }
+            ],
+            "AlarmActions": Match.any_value(),
+        },
+    )

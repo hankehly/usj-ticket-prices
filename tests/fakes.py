@@ -1,15 +1,31 @@
-"""Test doubles for the store and the archive."""
+"""Test doubles for the store, the archive and S3."""
 
 from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
 
+import boto3
+from botocore.stub import Stubber
+
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def fixture(name: str) -> bytes:
     return (FIXTURES / name).read_bytes()
+
+
+def stubbed_s3():
+    """An S3 client that answers only with the responses queued on its stubber."""
+    s3 = boto3.client(
+        "s3",
+        region_name="ap-northeast-1",
+        aws_access_key_id="testing",
+        aws_secret_access_key="testing",
+    )
+    stubber = Stubber(s3)
+    stubber.activate()
+    return s3, stubber
 
 
 class FakeStore:
@@ -43,8 +59,11 @@ class InMemoryArchive:
 
     def __init__(self) -> None:
         self.objects: dict[tuple[date, str], bytes] = {}
-        self.fetched_at: dict[tuple[date, str], datetime] = {}
+        self.fetch_times: dict[tuple[date, str], datetime] = {}
         self.manifests: dict[date, dict] = {}
+
+    def snapshot_dates(self) -> list[date]:
+        return sorted({stored_date for (stored_date, _) in self.objects})
 
     def stored_items(self, snapshot_date: date) -> set[str]:
         return {item for (stored_date, item) in self.objects if stored_date == snapshot_date}
@@ -56,8 +75,11 @@ class InMemoryArchive:
         if (snapshot_date, item) in self.objects:
             raise AssertionError(f"attempted to replace stored response {item}")
         self.objects[(snapshot_date, item)] = body
-        self.fetched_at[(snapshot_date, item)] = fetched_at
+        self.fetch_times[(snapshot_date, item)] = fetched_at
         return True
+
+    def fetched_at(self, snapshot_date: date, item: str) -> datetime:
+        return self.fetch_times[(snapshot_date, item)]
 
     def write_manifest(self, snapshot_date: date, manifest: dict) -> None:
         self.manifests[snapshot_date] = manifest

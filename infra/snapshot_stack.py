@@ -1,10 +1,10 @@
-"""AWS resources for the daily Snapshot."""
+"""AWS resources for the daily Snapshot and the data file built from it."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from aws_cdk import Duration, RemovalPolicy, Stack, TimeZone
+from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack, TimeZone
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_cloudwatch_actions as cloudwatch_actions
 from aws_cdk import aws_lambda as lambda_
@@ -15,6 +15,8 @@ from aws_cdk import aws_scheduler_targets as scheduler_targets
 from aws_cdk import aws_sns as sns
 from aws_cdk import aws_sns_subscriptions as subscriptions
 from constructs import Construct
+
+from usj_ticket_prices.site import DATA_FILE
 
 SOURCE_DIR = Path(__file__).resolve().parent.parent / "src"
 
@@ -42,6 +44,8 @@ class SnapshotStack(Stack):
         alerts = sns.Topic(self, "Alerts", display_name="USJ ticket prices alerts")
         alerts.add_subscription(subscriptions.EmailSubscription(alert_email))
 
+        code = lambda_.Code.from_asset(str(SOURCE_DIR), exclude=["**/__pycache__", "**/*.pyc"])
+
         take_snapshot = lambda_.Function(
             self,
             "TakeSnapshot",
@@ -49,7 +53,7 @@ class SnapshotStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_13,
             architecture=lambda_.Architecture.ARM_64,
             handler="usj_ticket_prices.handler.handler",
-            code=lambda_.Code.from_asset(str(SOURCE_DIR), exclude=["**/__pycache__", "**/*.pyc"]),
+            code=code,
             # About 70 requests paced 3 seconds apart take roughly 5 minutes.
             timeout=Duration.minutes(15),
             memory_size=256,
@@ -104,3 +108,60 @@ class SnapshotStack(Stack):
             treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
         )
         run_failed.add_alarm_action(cloudwatch_actions.SnsAction(alerts))
+
+        # The public page is served from this bucket. The bucket itself stays
+        # private: nothing in it is readable except through whatever is put in
+        # front of it.
+        site = s3.Bucket(
+            self,
+            "Site",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+        )
+
+        build_data_file = lambda_.Function(
+            self,
+            "BuildDataFile",
+            description="Builds the page's data file from every stored Snapshot",
+            runtime=lambda_.Runtime.PYTHON_3_13,
+            architecture=lambda_.Architecture.ARM_64,
+            handler="usj_ticket_prices.handler.build_handler",
+            code=code,
+            # Every build reads the whole history: about three S3 requests per
+            # Snapshot, so a few seconds per year of Snapshots.
+            timeout=Duration.minutes(5),
+            memory_size=512,
+            environment={
+                "SNAPSHOT_BUCKET": bucket.bucket_name,
+                "SITE_BUCKET": site.bucket_name,
+            },
+            log_group=logs.LogGroup(
+                self,
+                "BuildDataFileLogs",
+                retention=logs.RetentionDays.THREE_MONTHS,
+                removal_policy=RemovalPolicy.DESTROY,
+            ),
+        )
+        # The build can read every stored response but change none of them,
+        # and the data file is the only object it can write.
+        bucket.grant_read(build_data_file)
+        site.grant_put(build_data_file, DATA_FILE)
+
+        # A Snapshot run that stored anything starts a build. Unlike a run, a
+        # build is safe to repeat, so Lambda's automatic retries stay on.
+        build_data_file.grant_invoke(take_snapshot)
+        take_snapshot.add_environment("BUILD_FUNCTION_NAME", build_data_file.function_name)
+
+        build_failed = build_data_file.metric_errors(period=Duration.minutes(5)).create_alarm(
+            self,
+            "BuildFailed",
+            alarm_description="A build of the data file crashed or timed out",
+            threshold=1,
+            evaluation_periods=1,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        build_failed.add_alarm_action(cloudwatch_actions.SnsAction(alerts))
+
+        # Invoke this function by hand to rebuild the data file at any time.
+        CfnOutput(self, "BuildDataFileFunctionName", value=build_data_file.function_name)

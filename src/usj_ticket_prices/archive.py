@@ -15,13 +15,24 @@ from datetime import date, datetime
 
 from botocore.exceptions import ClientError
 
+SNAPSHOTS_PREFIX = "snapshots/"
 MANIFEST = "manifest.json"
+FETCHED_AT = "fetched-at"
 
 
 class S3Archive:
     def __init__(self, s3_client, bucket: str) -> None:
         self._s3 = s3_client
         self._bucket = bucket
+
+    def snapshot_dates(self) -> list[date]:
+        paginator = self._s3.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=self._bucket, Prefix=SNAPSHOTS_PREFIX, Delimiter="/")
+        return sorted(
+            date.fromisoformat(prefix[len(SNAPSHOTS_PREFIX) :].rstrip("/"))
+            for prefix in pages.search("CommonPrefixes[].Prefix")
+            if prefix
+        )
 
     def stored_items(self, snapshot_date: date) -> set[str]:
         prefix = _prefix(snapshot_date)
@@ -36,6 +47,10 @@ class S3Archive:
         with response["Body"] as body:
             return body.read()
 
+    def fetched_at(self, snapshot_date: date, item: str) -> datetime:
+        response = self._s3.head_object(Bucket=self._bucket, Key=_prefix(snapshot_date) + item)
+        return datetime.fromisoformat(response["Metadata"][FETCHED_AT])
+
     def write(
         self, snapshot_date: date, item: str, body: bytes, fetched_at: datetime
     ) -> bool:
@@ -47,7 +62,7 @@ class S3Archive:
                 Key=_prefix(snapshot_date) + item,
                 Body=body,
                 ContentType="application/json",
-                Metadata={"fetched-at": fetched_at.isoformat()},
+                Metadata={FETCHED_AT: fetched_at.isoformat()},
                 IfNoneMatch="*",
             )
         except ClientError as error:
@@ -70,4 +85,4 @@ class S3Archive:
 
 
 def _prefix(snapshot_date: date) -> str:
-    return f"snapshots/{snapshot_date.isoformat()}/"
+    return f"{SNAPSHOTS_PREFIX}{snapshot_date.isoformat()}/"
